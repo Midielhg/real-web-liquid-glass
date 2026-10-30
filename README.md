@@ -12,7 +12,7 @@ Drag the posters, open the ••• menu and the Details sheet, then tune every
 
 | Path | What it is |
 |---|---|
-| `docs/index.html` | The demo. One self-contained page, no build step. |
+| `index.html` | The demo. One self-contained page, no build step. Served by GitHub Pages from the repo root. |
 | `src/glass-renderer.js` | The renderer as an ES module: `createGlassRenderer(canvas)` and the shipped defaults. |
 | `skills/liquid-glass/SKILL.md` | The full design language as a Claude skill: which material goes where, the renderer rules, frosted fallback, motion, components, iOS traps. |
 
