@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="WebGL liquid glass for the web: a live lens shader that bends what's under each control.">
+<title>Real Web Liquid Glass</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one wide stage (the glass at work), then settings beside the call and the rules. */
+:root{
+  --bg:#EEF0F3; --surface:#FFFFFF; --line:rgba(24,34,52,.12); --fg:#16191E; --fg2:#4A5260; --fg3:#5F6774;
+  --accent:#0A6CFF; --theirs:#C2185B; --chip:#E4E8EE; --chip-on:#16191E; --chip-on-fg:#FFFFFF;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  --sf:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --spring:linear(0,.04,.16,.36,.6,.82,.97,1.04,1.05,1.04,1.02,1.007,1);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0C0E11; --surface:#15181D; --line:rgba(255,255,255,.1); --fg:#F2F4F7; --fg2:#AEB5C0; --fg3:#9199A6;
+  --accent:#4A9DFF; --theirs:#FF5C9A; --chip:#232831; --chip-on:#F2F4F7; --chip-on-fg:#0C0E11; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0C0E11; --surface:#15181D; --line:rgba(255,255,255,.1); --fg:#F2F4F7; --fg2:#AEB5C0; --fg3:#9199A6;
+  --accent:#4A9DFF; --theirs:#FF5C9A; --chip:#232831; --chip-on:#F2F4F7; --chip-on-fg:#0C0E11; color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{max-width:1320px;margin:0 auto;padding-block:26px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px}
+h1{margin:0;font-size:clamp(26px,4vw,36px);letter-spacing:-.025em;line-height:1.1;text-wrap:balance;font-weight:800}
+.lede{margin:6px 0 0;color:var(--fg2);max-width:66ch}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{appearance:none;border:0;background:var(--chip);color:var(--fg);font:500 13px var(--sans);padding:6px 12px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--chip-on);color:var(--chip-on-fg)}
+.chip:focus-visible,.rng:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.benches{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+.benches[data-view="ours"] .bench-theirs,.benches[data-view="theirs"] .bench-ours{display:none}
+.benches[data-view="ours"],.benches[data-view="theirs"]{grid-template-columns:minmax(0,720px);justify-content:center}
+@media (max-width:1020px){.benches{grid-template-columns:minmax(0,1fr)}}
+.bench{min-width:0;display:flex;flex-direction:column;gap:14px}
+.bench-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.bench-head h2{margin:0;font-size:19px;letter-spacing:-.015em}
+.sub{margin:2px 0 0;color:var(--fg2);font-size:13.5px}
+.tag{font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.bench-ours .tag{color:var(--accent)}.bench-theirs .tag{color:var(--theirs)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.panel h3{margin:0;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--fg3);font-weight:700}
+.panel .phead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.ctl{display:grid;grid-template-columns:118px minmax(0,1fr);gap:10px;align-items:center}
+.ctl>span{font-size:13px;color:var(--fg2);font-family:var(--mono)}
+.rngrow{display:flex;align-items:center;gap:10px}
+.rng{flex:1;min-width:0;accent-color:var(--fg)}
+.rngrow output{font-family:var(--mono);font-size:12.5px;min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 22px}
+@media (max-width:640px){.grid2{grid-template-columns:minmax(0,1fr)}.ctl{grid-template-columns:104px minmax(0,1fr)}}
+.hint{font-size:12.5px;color:var(--fg3);margin:0}
+pre.code{margin:0;padding:12px 14px;border-radius:12px;background:var(--chip);font-family:var(--mono);font-size:12px;line-height:1.55;overflow-x:auto;white-space:pre;color:var(--fg)}
+.tblwrap{overflow-x:auto}
+table.ref{width:100%;border-collapse:collapse;font-size:13px}
+table.ref th{text-align:left;font-weight:600;color:var(--fg3);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.ref td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.ref td:first-child{font-family:var(--mono);font-size:12px;white-space:nowrap}
+table.ref tr:last-child td{border-bottom:0}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:3px 10px;border-radius:999px;background:var(--chip);color:var(--fg2)}
+.badge i{width:7px;height:7px;border-radius:50%;background:#C9A227}.badge.on i{background:#30C25B}
+.diff{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.diff .panel p{margin:0;font-size:13.5px;color:var(--fg2)}.diff strong{color:var(--fg);display:block;margin-bottom:2px}
+
+/* ===================== OURS: Recline glass (WebGL) ===================== */
+.rstage{position:relative;height:560px;border-radius:24px;overflow:hidden;background:#141414;color:#F4F4F6;font-family:var(--sf);touch-action:none;user-select:none;-webkit-user-select:none;isolation:isolate;cursor:grab}
+.rstage:active{cursor:grabbing}
+.rstage canvas{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+#rScene{z-index:0}#rGlass{z-index:1}#rMenuGl{z-index:4}
+.r-ui{position:absolute;z-index:2;display:flex;align-items:center;justify-content:center;color:#fff}
+.r-ui button{font-family:inherit;color:#fff}
+.r-avatar{left:16px;top:14px;width:45px;height:45px;border-radius:50%;font-size:22px}
+.r-search{right:16px;top:14px;width:45px;height:45px;border-radius:50%}
+.r-search svg,.r-more svg,.r-player svg{width:22px;height:22px}
+.r-tabs{left:50%;top:14px;translate:-50% 0;height:45px;padding:3px;gap:3px;border-radius:999px}
+.r-tabs button{position:relative;z-index:1;height:39px;border:.5px solid transparent;background:none;font-size:16px;font-weight:700;line-height:1;padding:0 11px;border-radius:999px;cursor:pointer}
+.r-pill{position:absolute;z-index:0;top:3px;height:39px;left:0;border-radius:999px;background:rgba(43,43,43,.7);border:.5px solid rgba(255,255,255,.14);box-shadow:0 4px 18px rgba(0,0,0,.22);transform-origin:center;transition:translate .5s var(--spring),width .5s var(--spring),scale .32s var(--spring)}
+.r-chips{left:16px;right:16px;top:72px;justify-content:flex-start;gap:8px;flex-wrap:nowrap;overflow:hidden}
+.r-chip{height:34px;padding:0 14px;border-radius:999px;font-size:14px;font-weight:600;display:inline-flex;align-items:center;position:relative;border:0;background:none;cursor:pointer;white-space:nowrap;flex:none}
+.r-chip[aria-pressed="true"]{background:rgba(255,255,255,.92);color:#111!important}
+.r-player{left:50%;bottom:18px;translate:-50% 0;height:56px;border-radius:999px;padding:0 10px;gap:4px}
+.r-player button{appearance:none;border:0;background:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;cursor:pointer;transition:opacity .06s}
+.r-player button:active,.r-more:active,.r-search:active{opacity:.6}
+.r-player .play svg{width:28px;height:28px}
+.r-more{right:16px;bottom:18px;width:56px;height:56px;border-radius:50%;border:0;background:none;cursor:pointer;transition:opacity .06s}
+.r-menu{position:absolute;z-index:5;right:16px;bottom:86px;width:236px;border-radius:26px;padding:8px;color:#fff;transform-origin:bottom right;scale:.86;opacity:0;pointer-events:none;transition:scale .5s var(--spring),opacity .16s ease}
+.r-menu.show{scale:1;opacity:1;pointer-events:auto}
+.r-menu button{appearance:none;border:0;background:none;width:100%;height:44px;display:flex;align-items:center;gap:12px;padding:0 12px;border-radius:16px;font:500 16px var(--sf);color:#fff;cursor:pointer;text-align:left}
+.r-menu button svg{width:20px;height:20px;opacity:.9}
+.r-menu hr{border:0;height:.5px;background:rgba(255,255,255,.18);margin:4px 10px}
+@media (hover:hover){.r-menu button:hover{background:rgba(255,255,255,.12)}}
+.r-ui :focus-visible,.r-menu :focus-visible,.r-ui:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.r-hint{position:absolute;z-index:3;left:50%;bottom:84px;translate:-50% 0;font:500 12px var(--sf);color:rgba(255,255,255,.6);white-space:nowrap;pointer-events:none}
+/* "Today's look" (frosted) and the no-WebGL fallback */
+.rstage.frosted #rGlass,.rstage.frosted #rMenuGl{display:none}
+.rstage.frosted .r-glass{background:rgba(44,44,44,.42);border:.5px solid rgba(255,255,255,.2);box-shadow:0 4px 18px rgba(0,0,0,.22);-webkit-backdrop-filter:blur(16px) saturate(180%);backdrop-filter:blur(16px) saturate(180%)}
+.rstage.frosted .r-menu{background:rgba(26,26,26,.86);border:1px solid rgba(255,255,255,.2);-webkit-backdrop-filter:blur(44px) saturate(180%);backdrop-filter:blur(44px) saturate(180%)}
+.rstage.frosted .r-chip.r-glass[aria-pressed="true"]{background:rgba(255,255,255,.92)}
+
+.stagewrap{display:flex;flex-direction:column;gap:12px}
+.rstage{height:620px}
+.cols{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:980px){.cols{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.r-sheet-btn{left:16px;bottom:18px;height:56px;padding:0 20px;border-radius:999px;border:0;background:none;font:600 16px var(--sf);cursor:pointer;transition:opacity .06s}
+.r-sheet-btn:active{opacity:.6}
+.r-scrim{position:absolute;inset:0;z-index:6;background:rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:opacity .22s ease}
+.r-scrim.show{opacity:1;pointer-events:auto}
+.r-sheet{position:absolute;z-index:7;left:8px;right:8px;bottom:8px;border-radius:22px;padding:10px 20px 22px;color:#fff;background:rgba(44,44,44,.42);border:.5px solid rgba(255,255,255,.2);box-shadow:0 4px 18px rgba(0,0,0,.22);-webkit-backdrop-filter:blur(44px) saturate(180%);backdrop-filter:blur(44px) saturate(180%);translate:0 110%;transition:translate .55s var(--spring);display:flex;flex-direction:column;gap:10px;cursor:auto}
+.r-sheet.show{translate:0 0}
+.r-sheet .grab{width:38px;height:5px;border-radius:3px;background:rgba(255,255,255,.35);align-self:center}
+.r-sheet h4{margin:0;font-size:19px}.r-sheet p{margin:0;font-size:14px;color:rgba(244,244,246,.72)}
+.r-sheet .row{display:flex;gap:8px;flex-wrap:wrap}
+.r-sheet .row button{height:40px;padding:0 16px;border-radius:999px;border:.5px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;font:600 14px var(--sf);cursor:pointer}
+.r-sheet .row button.primary{background:#fff;color:#111;margin-left:auto}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--fg2)}
+.legend b{color:var(--fg);font-weight:600}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+@media (prefers-reduced-motion:reduce){.rstage *{transition-duration:0s!important}}
+@media (max-width:520px){.rstage{height:640px}.r-tabs button{font-size:14px;padding:0 8px}.r-sheet-btn{padding:0 14px;font-size:14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Real Web Liquid Glass</h1>
+      <p class="lede">Our glass from reclinetv.com, now the Liquid Glass skill. A WebGL lens bends what's under each control. Drag the posters, open the menu and the sheet, then tune every setting below.</p>
+    </div>
+    <span class="badge" id="glBadge"><i></i>WebGL</span>
+  </header>
+  <div class="stagewrap">
+    <div class="rstage" id="rStage">
+        <canvas id="rScene"></canvas>
+        <canvas id="rGlass"></canvas>
+        <div class="r-ui r-avatar r-glass" data-lens="clear" aria-label="Profile">😎</div>
+        <div class="r-ui r-tabs r-glass" data-lens="clear" role="tablist" aria-label="Sections" id="rTabs">
+          <span class="r-pill" id="rPill"></span>
+          <button role="tab" aria-selected="true">Movies</button><button role="tab" aria-selected="false">Shows</button><button role="tab" aria-selected="false">Live</button>
+        </div>
+        <button class="r-ui r-search r-glass" data-lens="clear" aria-label="Search" style="border:0;background:none;cursor:pointer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg></button>
+        <div class="r-ui r-chips" id="rChips">
+          <button class="r-chip r-glass" data-lens="clear" aria-pressed="true">All</button>
+          <button class="r-chip r-glass" data-lens="clear" aria-pressed="false">Action</button>
+          <button class="r-chip r-glass" data-lens="clear" aria-pressed="false">Comedy</button>
+          <button class="r-chip r-glass" data-lens="clear" aria-pressed="false">Drama</button>
+        </div>
+        <div class="r-ui r-player r-glass" data-lens="clear" role="group" aria-label="Player">
+          <button aria-label="Back 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 6v12L2.5 12zm10 0v12l-8.5-6z"/></svg></button>
+          <button class="play" aria-label="Play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg></button>
+          <button aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 6v12l8.5-6zM3 6v12l8.5-6z"/></svg></button>
+        </div>
+        <button class="r-ui r-more r-glass" data-lens="clear" id="rMoreBtn" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2.1"/><circle cx="12" cy="12" r="2.1"/><circle cx="19" cy="12" r="2.1"/></svg></button>
+        <canvas id="rMenuGl"></canvas>
+        <div class="r-menu" id="rMenu" role="menu">
+          <button role="menuitem"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.1 5.3 3 1.7-1.9 3.2-3 5.3-3 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg>Add to My List</button>
+          <button role="menuitem"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16v2H4zm0 6h16v2H4zm0 6h10v2H4z"/></svg>Subtitles</button>
+          <button role="menuitem"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm1 4v5l4 2-1 1.7-5-2.7V7z"/></svg>Playback speed</button>
+          <hr>
+          <button role="menuitem"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6z"/></svg>Report a problem</button>
+        </div>
+        <button class="r-ui r-sheet-btn r-glass" data-lens="clear" id="rSheetBtn" aria-haspopup="dialog">Details</button>
+        <span class="r-hint" id="rHint">Drag or scroll the posters</span>
+        <div class="r-scrim" id="rScrim"></div>
+        <div class="r-sheet" id="rSheet" role="dialog" aria-modal="true" aria-labelledby="rSheetH"><span class="grab"></span><h4 id="rSheetH">Blue Hour</h4><p>2025 · Drama · 1h 54m. This sheet is frosted on purpose: 44px blur, panels never become lenses.</p><div class="row"><button>Trailer</button><button>My List</button><button class="primary" id="rSheetDone">Play</button></div></div>
+      </div>
+      
+    <div class="legend"><span><b>Clear lens</b> bar, tabs, chips, player, round buttons</span><span><b>Blurred lens</b> the ••• menu</span><span><b>Frost</b> the Details sheet</span></div>
+  </div>
+  <div class="cols">
+    <div class="col"><div class="panel" id="rCtl">
+        <h3>Settings</h3>
+        <div class="ctl"><span>preset</span><div class="chips" id="rPresets"></div></div>
+        <div class="ctl"><span>scene</span><div class="chips" id="rScenes"><button class="chip" aria-pressed="true" data-s="posters">Poster wall</button><button class="chip" aria-pressed="false" data-s="bright">Bright wallpaper</button></div></div>
+        <div class="grid2" id="rSliders"></div>
+        <p class="hint">Controls use a light dark tint (0.14). The menu is the exception: what's under it is blurred 26px first, then bent, with a grey tint, like the iPhone app.</p>
+      </div>
+      </div>
+    <div class="col"><div class="panel"><h3>Equivalent call</h3><pre class="code" id="rCode"></pre></div>
+      <div class="panel">
+        <h3>Every setting</h3>
+        <div class="tblwrap"><table class="ref"><thead><tr><th>Option</th><th>What it does</th></tr></thead><tbody>
+          <tr><td>refraction</td><td>How far the bevel bends the picture through both lens faces</td></tr>
+          <tr><td>chromAberration</td><td>Colour fringe at the rim (R and B pulled apart)</td></tr>
+          <tr><td>edgeHighlight</td><td>Lit inner stroke, rim light and inner glow</td></tr>
+          <tr><td>fresnel</td><td>Whitening toward grazing angles at the edge</td></tr>
+          <tr><td>specular</td><td>Four fixed highlights (Recline keeps it at 0)</td></tr>
+          <tr><td>saturation / brightness</td><td>Colour of what's seen through the glass</td></tr>
+          <tr><td>zRadius</td><td>Bevel height in px. Recline uses 14/3, a third of the library's</td></tr>
+          <tr><td>shadowOpacity / Spread / OffsetY</td><td>Soft contact shadow around each shape</td></tr>
+          <tr><td>tint</td><td>[r,g,b,a] laid over the glass. Controls: [0,0,0,.14]. Menus: [.42,.42,.45,.3]</td></tr>
+          <tr><td>FROST ≥ 24</td><td>glasslayer.js keeps sheets and big panels frosted, only controls and menus become lenses</td></tr>
+          <tr><td>--spring</td><td>Same damped overshoot for all geometry (the tab pill travels with a stretch)</td></tr>
+        </tbody></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+
+
+/* ================================================================
+   OURS: port of Recline's glassrender.js (shader kept as is, options live)
+   ================================================================ */
+const MAX=10;
+const VERT=`attribute vec2 a_pos;varying vec2 v_uv;void main(){v_uv=vec2((a_pos.x+1.0)*0.5,(1.0-a_pos.y)*0.5);gl_Position=vec4(a_pos,0.0,1.0);}`;
+const FRAG=`precision highp float;varying vec2 v_uv;uniform sampler2D u_bgTex;uniform vec2 u_css;uniform float u_dpr;uniform int u_count;
+uniform vec4 u_rect[${MAX}];uniform float u_rad[${MAX}];uniform vec4 u_tints[${MAX}];
+uniform float u_refract;uniform float u_chroma;uniform float u_edgeHL;uniform float u_spec;uniform float u_fresnel;uniform float u_sat;uniform float u_zRadius;uniform float u_brightness;uniform float u_shadowAlpha;uniform float u_shadowSpread;uniform float u_shadowOffY;
+float rrSDF(vec2 p,vec2 b,float r){vec2 q=abs(p)-b+vec2(r);return min(max(q.x,q.y),0.0)+length(max(q,vec2(0.0)))-r;}
+float bevelHeight(float d,float zR){if(d<=0.0)return 0.0;if(d>=zR)return zR;return sqrt(d*(2.0*zR-d));}
+vec4 glass(vec2 local,vec2 half_,float r,vec2 screenUV,vec2 res,vec4 tint){
+ float sdf=rrSDF(local,half_,r);
+ if(sdf>0.0){float sdfShadow=rrSDF(local-vec2(0.0,u_shadowOffY),half_,r);float d=max(sdfShadow-1.0,0.0);float spread=max(u_shadowSpread,1.0);float falloff=1.0/(spread*spread);
+  float outerShadow=exp(-d*d*falloff)*0.65;float contactShadow=exp(-d*0.08/max(spread*0.04,0.01))*0.35;return vec4(0.0,0.0,0.0,(outerShadow+contactShadow)*u_shadowAlpha);}
+ float mask=1.0-smoothstep(-1.5,0.5,sdf);float maxD=min(half_.x,half_.y);float inside=-sdf;float edge=smoothstep(maxD*0.35,0.0,inside);
+ float zR=u_zRadius;float e=2.0;float hC=bevelHeight(inside,zR);
+ float hR=bevelHeight(-rrSDF(local+vec2(e,0.0),half_,r),zR);float hL=bevelHeight(-rrSDF(local-vec2(e,0.0),half_,r),zR);
+ float hU=bevelHeight(-rrSDF(local+vec2(0.0,e),half_,r),zR);float hD=bevelHeight(-rrSDF(local-vec2(0.0,e),half_,r),zR);
+ vec2 hGrad=vec2(hR-hL,hU-hD)/(2.0*e);vec3 N=normalize(vec3(-hGrad,1.0));float depth=smoothstep(0.0,zR,inside);
+ vec2 pxToUV=vec2(1.0)/res;float refrPow=1.0-1.0/1.5;float thickNorm=(hC*2.0)/max(zR*2.0,1.0);
+ vec2 exitRefr=hGrad*refrPow;vec2 entryRefr=hGrad*refrPow;vec2 refrPx=(exitRefr+entryRefr+entryRefr*thickNorm*0.5)*u_refract*30.0;
+ refrPx+=(-local/max(half_,vec2(1.0)))*u_refract*4.0*depth;vec2 base=screenUV+refrPx*pxToUV;
+ float caS=u_chroma*18.0*(edge*0.7+0.3)*2.0;vec2 caD=N.xy*caS*pxToUV;
+ vec3 col=vec3(texture2D(u_bgTex,base+caD).r,texture2D(u_bgTex,base).g,texture2D(u_bgTex,base-caD).b);
+ col*=1.0+u_brightness;float lum=dot(col,vec3(0.299,0.587,0.114));col=mix(vec3(lum),col,1.0+u_sat);col*=1.0+0.06*depth;
+ float fres=pow(1.0-abs(N.z),4.0)*u_fresnel;vec3 V=vec3(0.0,0.0,1.0);float totalSpec=0.0;
+ if(u_spec>0.0){vec3 H1=normalize(normalize(vec3(0.4,0.7,1.0))+V);vec3 H2=normalize(normalize(vec3(-0.3,-0.5,1.0))+V);vec3 L3=normalize(vec3(0.1,0.3,1.0));vec3 H4=normalize(normalize(vec3(0.0,0.9,0.4))+V);
+  totalSpec=(pow(max(dot(N,H1),0.0),90.0)+pow(max(dot(N,H2),0.0),50.0)*0.3+pow(max(dot(N,L3),0.0),6.0)*0.1+pow(max(dot(N,H4),0.0),120.0)*0.6)*u_spec;}
+ float borderWidth=1.5;float innerStroke=smoothstep(-borderWidth-1.0,-borderWidth,sdf)*(1.0-smoothstep(-1.0,0.0,sdf));innerStroke*=0.4+0.6*(0.5+0.5*(-local.y/half_.y));
+ float rim=edge*u_edgeHL*0.22;float innerGlow=smoothstep(5.0,0.0,-sdf)*u_edgeHL*0.15;float envRefl=(N.y*0.5+0.5)*fres*0.08;
+ vec3 fin=col+vec3(totalSpec)+vec3(rim+innerGlow)+vec3(innerStroke*u_edgeHL*0.55)+vec3(envRefl);fin=mix(fin,vec3(1.0),fres*0.2);fin=mix(fin,tint.rgb,tint.a);
+ return vec4(fin,mask);}
+void main(){vec2 res=u_css*u_dpr;vec2 p=v_uv*res;vec2 suv=p/res;vec4 acc=vec4(0.0);
+ for(int i=0;i<${MAX};i++){if(i>=u_count)break;vec4 R=u_rect[i]*u_dpr;vec2 half_=R.zw*0.5;vec2 local=p-(R.xy+half_);
+  if(abs(local.x)>half_.x+24.0*u_dpr||abs(local.y)>half_.y+24.0*u_dpr)continue;float r=min(u_rad[i]*u_dpr,min(half_.x,half_.y));
+  vec4 g=glass(local,half_,r,suv,res,u_tints[i]);vec3 rgb=clamp(g.rgb,0.0,1.0);acc=vec4(rgb*g.a,g.a)+acc*(1.0-g.a);}
+ gl_FragColor=acc;}`;
+function createGlassRenderer(canvas){
+  let gl=null;try{gl=canvas.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:false});}catch(e){}
+  if(!gl)return null;
+  const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o};
+  const prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VERT));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FRAG));gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
+  const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  const aPos=gl.getAttribLocation(prog,'a_pos');gl.enableVertexAttribArray(aPos);gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+  const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+  [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]].forEach(([k,v])=>gl.texParameteri(gl.TEXTURE_2D,k,v));
+  const u=n=>gl.getUniformLocation(prog,n);gl.uniform1i(u('u_bgTex'),0);
+  const rects=new Float32Array(MAX*4),radii=new Float32Array(MAX),tints=new Float32Array(MAX*4);
+  return{draw(scene,lenses,dpr,o){
+    const w=scene.width,h=scene.height;if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
+    gl.viewport(0,0,w,h);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,scene);
+    gl.uniform1f(u('u_refract'),o.refraction);gl.uniform1f(u('u_chroma'),o.chromAberration);gl.uniform1f(u('u_edgeHL'),o.edgeHighlight);
+    gl.uniform1f(u('u_spec'),o.specular);gl.uniform1f(u('u_fresnel'),o.fresnel);gl.uniform1f(u('u_sat'),o.saturation);gl.uniform1f(u('u_brightness'),o.brightness);
+    gl.uniform1f(u('u_shadowAlpha'),o.shadowOpacity);gl.uniform1f(u('u_zRadius'),o.zRadius*dpr);gl.uniform1f(u('u_shadowSpread'),o.shadowSpread*dpr);gl.uniform1f(u('u_shadowOffY'),o.shadowOffsetY*dpr);
+    const n=Math.min(MAX,lenses.length);rects.fill(0);tints.fill(0);
+    for(let i=0;i<n;i++){const l=lenses[i];rects.set([l.x,l.y,l.width,l.height],i*4);radii[i]=l.radius;tints.set(l.tint||[0,0,0,0],i*4)}
+    gl.uniform2f(u('u_css'),w/dpr,h/dpr);gl.uniform1f(u('u_dpr'),dpr);gl.uniform1i(u('u_count'),n);
+    gl.uniform4fv(u('u_rect'),rects);gl.uniform1fv(u('u_rad'),radii);gl.uniform4fv(u('u_tints'),tints);
+    gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}};
+}
+
+const R=(()=>{
+  const stage=$('#rStage'),sceneC=$('#rScene'),glassC=$('#rGlass'),menuC=$('#rMenuGl');
+  const sctx=sceneC.getContext('2d');
+  const PRESETS={
+    recline:{label:'WebGL',o:{refraction:.6,chromAberration:.04,edgeHighlight:.2,fresnel:.35,specular:0,saturation:.12,brightness:0,zRadius:14/3,shadowOpacity:.12,shadowSpread:10,shadowOffsetY:2,tint:.14}},
+    frosted:{label:'Frosted (before)',frosted:true}
+  };
+  const SL=[['refraction',0,1.5,.01],['chromAberration',0,.2,.005],['edgeHighlight',0,1,.01],['fresnel',0,1.5,.01],['specular',0,1,.01],['saturation',-.5,1,.01],['brightness',-.3,.3,.01],['zRadius',1,24,.1],['shadowOpacity',0,.6,.01],['shadowSpread',1,30,.5],['shadowOffsetY',0,10,.5],['tint',0,.5,.01]];
+  let o={...PRESETS.recline.o},preset='recline',frosted=false;
+  let renderer=null,menuR=null;
+  try{renderer=createGlassRenderer(glassC);menuR=createGlassRenderer(menuC)}catch(e){renderer=null}
+  const badge=$('#glBadge');badge.classList.toggle('on',!!renderer);
+  badge.lastChild.textContent=renderer?' WebGL lens on':' No WebGL here, showing frosted';
+  if(!renderer){frosted=true;stage.classList.add('frosted')}
+
+  /* poster wall */
+  const titles=['Night Shift','Low Tide','Paper Moons','The Long Field','Blue Hour','Static','Northbound','Saltwater','Glass City','Afterglow','Red Desert','Quiet Hours','Overpass','Wildfire','Last Ferry','Neon Saints','Driftwood','Halfway Home','Orbit','Cold Open'];
+  const pals=[['#F25F3A','#3B1C5A'],['#0FB5AE','#0B2545'],['#F2C14E','#B23A48'],['#7B5EA7','#F28F3B'],['#2EC4B6','#E71D36'],['#FF9F1C','#1B1B3A'],['#9BC53D','#2B4162'],['#E84855','#2D3047'],['#3C91E6','#FA824C'],['#C5D86D','#261C15'],['#FF5D8F','#5A189A'],['#00A6FB','#051923']];
+  function poster(c,x,y,w,h,i,wide){
+    const p=pals[i%pals.length],g=c.createLinearGradient(x,y,x+w*.4,y+h);g.addColorStop(0,p[0]);g.addColorStop(1,p[1]);
+    c.save();c.beginPath();c.roundRect(x,y,w,h,12);c.clip();c.fillStyle=g;c.fillRect(x,y,w,h);
+    c.globalAlpha=.55;c.fillStyle=p[1];c.beginPath();c.arc(x+w*(.3+.4*((i*37)%10)/10),y+h*.38,w*.34,0,7);c.fill();
+    c.globalAlpha=.35;c.fillStyle='#fff';c.beginPath();c.arc(x+w*.72,y+h*.22,w*.12,0,7);c.fill();
+    c.globalAlpha=1;c.fillStyle='rgba(0,0,0,.35)';c.fillRect(x,y+h*.68,w,h*.32);
+    c.fillStyle='#fff';c.font=`800 ${wide?20:17}px -apple-system,Inter,sans-serif`;c.textBaseline='top';
+    const t=titles[i%titles.length].toUpperCase().split(' ');let ty=y+h*.72;
+    if(t.length>1&&!wide){c.fillText(t[0],x+10,ty);c.fillText(t.slice(1).join(' '),x+10,ty+19)}else c.fillText(t.join(' '),x+10,ty+(wide?6:8));
+    c.restore();
+  }
+  let W=0,H=0,DPR=1,heroC=null,wallC=null,scene='posters',scrollY=0,vel=0,dirty=true;
+  const rows=[['Trending this week',0,false],['Popular',4,true],['Now in theaters',9,false],['Coming soon',13,false],['Because you watched Blue Hour',6,false]];
+  const contentH=()=>130+rows.reduce((a,r)=>a+(r[2]?130:195)+56,0)+90;
+  function buildHero(){
+    heroC=document.createElement('canvas');heroC.width=W*DPR;heroC.height=360*DPR;const c=heroC.getContext('2d');c.scale(DPR,DPR);
+    const raw=document.createElement('canvas');raw.width=W;raw.height=360;const r=raw.getContext('2d');poster(r,-20,-40,W+40,440,3,true);
+    c.filter='blur(22px)';c.drawImage(raw,-30,-30,W+60,420);c.filter='none';
+    const g=c.createLinearGradient(0,0,0,360);g.addColorStop(0,'rgba(20,20,20,.15)');g.addColorStop(.55,'rgba(20,20,20,.55)');g.addColorStop(1,'#141414');c.fillStyle=g;c.fillRect(0,0,W,360);
+  }
+  function buildWall(){
+    wallC=document.createElement('canvas');wallC.width=W*DPR;wallC.height=H*DPR;const c=wallC.getContext('2d');c.scale(DPR,DPR);
+    const g=c.createLinearGradient(0,0,W,H);g.addColorStop(0,'#BFD8F2');g.addColorStop(.45,'#F3C6D8');g.addColorStop(1,'#F7A65B');c.fillStyle=g;c.fillRect(0,0,W,H);
+    c.filter='blur(30px)';
+    c.fillStyle='#6FA8FF';c.beginPath();c.ellipse(W*.15,H*.25,W*.35,H*.22,-.4,0,7);c.fill();
+    c.fillStyle='#FF6FA3';c.beginPath();c.ellipse(W*.85,H*.55,W*.32,H*.3,.5,0,7);c.fill();
+    c.fillStyle='#FFD25E';c.beginPath();c.ellipse(W*.3,H*.9,W*.4,H*.18,.2,0,7);c.fill();
+    c.filter='none';c.strokeStyle='rgba(255,255,255,.9)';c.lineWidth=1.6;c.beginPath();c.moveTo(-20,H*.85);c.bezierCurveTo(W*.3,H*.6,W*.45,H*.2,W+20,H*.05);c.stroke();
+  }
+  function drawScene(){
+    const c=sctx;c.setTransform(DPR,0,0,DPR,0,0);const bright=scene==='bright';
+    if(bright){c.drawImage(wallC,0,0,W,H)}else{c.fillStyle='#141414';c.fillRect(0,0,W,H);c.drawImage(heroC,0,0,W,360)}
+    let y=124-scrollY;c.textBaseline='alphabetic';
+    rows.forEach(([name,start,wide])=>{
+      c.fillStyle=bright?'#1D1D1F':'#F4F4F6';c.font='700 19px -apple-system,Inter,sans-serif';c.fillText(name,16,y+20);y+=34;
+      const pw=wide?230:130,ph=wide?130:195;let x=16;let i=start;
+      while(x<W+pw){poster(c,x,y,pw,ph,i,wide);x+=pw+12;i++}
+      y+=ph+22;
+    });
+  }
+  function lensFor(el,tint){
+    const s=stage.getBoundingClientRect(),r=el.getBoundingClientRect(),cs=getComputedStyle(el);
+    return{x:r.left-s.left,y:r.top-s.top,width:r.width,height:r.height,radius:Math.min(parseFloat(cs.borderTopLeftRadius)||0,r.height/2),tint};
+  }
+  const menu=$('#rMenu'),moreBtn=$('#rMoreBtn');
+  let blurC=null;
+  function frame(){
+    if(!dirty){requestAnimationFrame(frame);return}dirty=false;
+    drawScene();
+    if(!frosted&&renderer){
+      const t=[0,0,0,o.tint];
+      const lenses=$$('[data-lens]',stage).filter(e=>e.offsetParent!==null).map(e=>lensFor(e,t));
+      renderer.draw(sceneC,lenses,DPR,o);
+      if(menu.classList.contains('show')&&menuR){
+        if(!blurC){blurC=document.createElement('canvas')}blurC.width=sceneC.width;blurC.height=sceneC.height;const b=blurC.getContext('2d');
+        b.filter=`blur(${26*DPR}px) saturate(110%)`;b.drawImage(sceneC,0,0);b.filter='none';
+        const ml=lensFor(menu,[.42,.42,.45,.3]);menuR.draw(blurC,[ml],DPR,{...o,shadowOpacity:Math.max(o.shadowOpacity,.15)});menuC.style.opacity=1;
+      }else menuC.style.opacity=0;
+    }
+    requestAnimationFrame(frame);
+  }
+  function layout(){
+    const r=stage.getBoundingClientRect();if(!r.width)return;
+    W=Math.round(r.width);H=Math.round(r.height);DPR=Math.min(2,window.devicePixelRatio||1);
+    sceneC.width=W*DPR;sceneC.height=H*DPR;buildHero();buildWall();placePill(false);dirty=true;
+  }
+  /* tab pill (sliding, stretches toward travel) */
+  const tabs=$$('#rTabs button'),pill=$('#rPill');
+  function placePill(anim){
+    const a=tabs.find(t=>t.getAttribute('aria-selected')==='true');if(!a)return;
+    if(!anim){const tr=pill.style.transition;pill.style.transition='none';pill.style.width=a.offsetWidth+'px';pill.style.translate=a.offsetLeft+'px 0';pill.offsetWidth;pill.style.transition=tr;return}
+    pill.style.width=a.offsetWidth+'px';pill.style.translate=a.offsetLeft+'px 0';pill.style.scale='1.14 .94';clearTimeout(pill._t);pill._t=setTimeout(()=>pill.style.scale='1 1',160);
+  }
+  tabs.forEach(t=>t.addEventListener('click',()=>{tabs.forEach(x=>x.setAttribute('aria-selected',x===t));placePill(true)}));
+  $$('.r-chip').forEach(c=>c.addEventListener('click',()=>{$$('.r-chip').forEach(x=>x.setAttribute('aria-pressed',x===c));dirty=true}));
+  function setMenu(open){menu.classList.toggle('show',open);moreBtn.setAttribute('aria-expanded',open);dirty=true;let n=0;const tick=()=>{dirty=true;if(++n<40)requestAnimationFrame(tick)};tick()}
+  moreBtn.addEventListener('click',e=>{e.stopPropagation();setMenu(!menu.classList.contains('show'))});
+  $$('button',menu).forEach(b=>b.addEventListener('click',()=>setMenu(false)));
+  document.addEventListener('click',e=>{if(!menu.contains(e.target)&&!moreBtn.contains(e.target)&&menu.classList.contains('show'))setMenu(false)});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&menu.classList.contains('show')){setMenu(false);moreBtn.focus()}});
+  /* page's own scrolling, so glass and posters move in the same frame (as on reclinetv.com) */
+  const maxY=()=>Math.max(0,contentH()-H);
+  let drag=false,lastY=0,lastT=0;
+  stage.addEventListener('pointerdown',e=>{if(e.target.closest('button,[role=menu],[role=dialog],.r-scrim'))return;drag=true;lastY=e.clientY;lastT=e.timeStamp;vel=0;stage.setPointerCapture(e.pointerId);$('#rHint').style.opacity=0});
+  stage.addEventListener('pointermove',e=>{if(!drag)return;const dy=e.clientY-lastY;const dt=Math.max(1,e.timeStamp-lastT);scrollY=Math.max(-60,Math.min(maxY()+60,scrollY-dy));vel=-dy/dt;lastY=e.clientY;lastT=e.timeStamp;dirty=true});
+  const end=()=>{if(!drag)return;drag=false;momentum()};
+  stage.addEventListener('pointerup',end);stage.addEventListener('pointercancel',end);
+  stage.addEventListener('wheel',e=>{e.preventDefault();scrollY=Math.max(0,Math.min(maxY(),scrollY+e.deltaY));dirty=true;$('#rHint').style.opacity=0},{passive:false});
+  function momentum(){let last=performance.now();const step=now=>{const dt=Math.min(48,now-last);last=now;const m=maxY();
+    if(scrollY<0||scrollY>m){const edge=scrollY<0?0:m;vel*=Math.pow(.9,dt/16);scrollY+=vel*dt;scrollY+=(edge-scrollY)*(1-Math.exp(-dt/90));if(Math.abs(edge-scrollY)<.3&&Math.abs(vel)<.02){scrollY=edge;vel=0}}
+    else if(vel){scrollY+=vel*dt;vel*=Math.pow(.998,dt);if(Math.abs(vel)<.01)vel=0}
+    dirty=true;if(!drag&&(vel||scrollY<0||scrollY>m))requestAnimationFrame(step)};requestAnimationFrame(step)}
+  /* controls */
+  const sliders={};
+  function setPreset(k){preset=k;const p=PRESETS[k];frosted=!!p.frosted||!renderer;stage.classList.toggle('frosted',frosted);if(p.o){o={...p.o};SL.forEach(([id])=>{sliders[id].r.value=o[id];sliders[id].out.textContent=fmt(o[id])})}
+    $$('#rPresets .chip').forEach(x=>x.setAttribute('aria-pressed',x.dataset.k===k));$('#rSliders').style.opacity=frosted?.45:1;code();dirty=true}
+  const fmt=v=>{const t=(+v).toFixed(2);return t.indexOf('.')>-1?t.replace(/0+$/,'').replace(/\.$/,''):t};
+  Object.entries(PRESETS).forEach(([k,p])=>{const b=document.createElement('button');b.className='chip';b.dataset.k=k;b.textContent=p.label;b.setAttribute('aria-pressed',k===preset);b.addEventListener('click',()=>setPreset(k));$('#rPresets').appendChild(b)});
+  SL.forEach(([id,mn,mx,st])=>{const row=document.createElement('div');row.className='ctl';
+    row.innerHTML=`<span>${id}</span><div class="rngrow"><input class="rng" type="range" id="r-${id}" min="${mn}" max="${mx}" step="${st}" value="${o[id]}" aria-label="${id}"><output>${fmt(o[id])}</output></div>`;
+    const r=$('input',row),out=$('output',row);sliders[id]={r,out};
+    r.addEventListener('input',()=>{o[id]=+r.value;out.textContent=fmt(r.value);if(frosted&&renderer){frosted=false;stage.classList.remove('frosted')}preset='custom';$$('#rPresets .chip').forEach(x=>x.setAttribute('aria-pressed','false'));$('#rSliders').style.opacity=1;code();dirty=true});
+    $('#rSliders').appendChild(row)});
+  function code(){
+    if(frosted){$('#rCode').textContent=`/* the look before the lens (style.css) */
+.glass {
+  background: rgba(44,44,44,.42);
+  border: .5px solid rgba(255,255,255,.2);
+  box-shadow: 0 4px 18px rgba(0,0,0,.22);
+  backdrop-filter: blur(16px) saturate(180%);
+}`;return}
+    const f=k=>fmt(o[k]);
+    $('#rCode').textContent=`createGlassRenderer(canvas, {
+  zRadius: ${f('zRadius')}, refraction: ${f('refraction')},
+  chromAberration: ${f('chromAberration')}, edgeHighlight: ${f('edgeHighlight')},
+  fresnel: ${f('fresnel')}, specular: ${f('specular')},
+  saturation: ${f('saturation')}, brightness: ${f('brightness')},
+  shadowOpacity: ${f('shadowOpacity')}, shadowSpread: ${f('shadowSpread')}, shadowOffsetY: ${f('shadowOffsetY')},
+});
+renderer.draw(scene, lenses, dpr, { tint: [0, 0, 0, ${f('tint')}] });`}
+  code();
+  window.addEventListener('resize',layout);
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{placePill(false);dirty=true});
+  requestAnimationFrame(()=>{layout();requestAnimationFrame(frame)});
+  $$('#rScenes .chip').forEach(b=>b.addEventListener('click',()=>{scene=b.dataset.s;$$('#rScenes .chip').forEach(x=>x.setAttribute('aria-pressed',x===b));stage.style.background=scene==='bright'?'#EADFE8':'#141414';dirty=true}));
+  const sheet=$('#rSheet'),scrim=$('#rScrim'),sheetBtn=$('#rSheetBtn');
+  function setSheet(v){sheet.classList.toggle('show',v);scrim.classList.toggle('show',v);if(v)$('#rSheetDone').focus();else sheetBtn.focus()}
+  sheetBtn.addEventListener('click',()=>setSheet(true));scrim.addEventListener('click',()=>setSheet(false));$$('.r-sheet .row button').forEach(b=>b.addEventListener('click',()=>setSheet(false)));
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sheet.classList.contains('show'))setSheet(false)});
+  return{layout};
+})();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+The glass shader in src/glass-renderer.js and docs/index.html is adapted from
+@ybouane/liquidglass (https://github.com/ybouane/liquidglass), used under the
+MIT License. Changes: all shapes drawn in one WebGL pass from one scene texture,
+per-shape tint, options set per draw.
